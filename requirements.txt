@@ -1,0 +1,10 @@
+# Resonance — Resume · JD Matcher + Job Discovery
+# Install with:  pip install -r requirements.txt
+# Python 3.10+ recommended
+
+streamlit>=1.35.0
+sentence-transformers>=3.0.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+torch>=2.2.0           # CPU-only build is fine; see README for lighter install
+transformers>=4.40.0
