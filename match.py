@@ -5,7 +5,8 @@ Built by Danny Greene, 2026
 match.py
 Cosine similarity scoring, section-level breakdown, and gap analysis.
 """
-
+import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer

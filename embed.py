@@ -6,6 +6,9 @@ embed.py
 Local sentence-transformer embeddings. No external APIs.
 Model: all-MiniLM-L6-v2 (~80 MB, CPU-friendly, cached after first download).
 """
+import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 
 import numpy as np
 from functools import lru_cache

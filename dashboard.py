@@ -6,6 +6,7 @@ Local-first. Privacy-preserving. No data leaves your machine.
 
 import streamlit as st
 import datetime
+import pandas as pd
 from match import analyse
 from discover import discover_roles
 
@@ -20,6 +21,10 @@ for k, v in [
     ("discovered_roles", None),
     ("expanded_cards",   set()),
     ("start_menu_open",  False),
+    ("incognito",        False),
+    ("show_key",         False),
+    ("reveal_key",       {}),
+    ("screen_df",        None),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -218,6 +223,13 @@ Paste any job description alongside your resume and click Analyse Match.
 - Final score: 40% overall + 60% section-weighted blend
 - Insights: key phrases from the job description scored against your resume
 
+**Screen Applicants**
+Upload multiple resumes (PDF or TXT) and a job description.
+All candidates are scored and ranked locally.
+- Enable Bias Reduction Mode to anonymize applicant identities before scoring
+- Reveal the identity key after shortlisting to reduce unconscious bias
+- Export results as CSV with the identity key included
+                                
 **Scoring Guide**
 - 75-100%: Strong Match
 - 55-74%: Moderate Match
@@ -472,6 +484,124 @@ Sections: Skills 45% / Experience 35% / Education 20%
                     unsafe_allow_html=True)
 
 
+elif st.session_state.active_window == "screen":
+    from batch import screen_applicants, extract_text
+
+    incognito = st.session_state.incognito
+    win_label = "Screen Applicants -- Bias Reduction Mode" if incognito else "Screen Applicants"
+
+    st.markdown(f"""
+    <div class="win-window">
+      <div class="win-titlebar" style="{'background:linear-gradient(90deg,#2d0060,#6b00b3);' if incognito else ''}">
+        <span>{win_label}</span>
+        <div class="win-titlebar-btns">
+          <div class="win-titlebar-btn">_</div>
+          <div class="win-titlebar-btn">&#9633;</div>
+        </div>
+      </div>
+      <div class="win-body">
+        <p style="margin:0;font-size:12px;">Upload resumes and a job description.
+        All applicants are scored and ranked locally.
+        Enable Incognito Mode to strip names, emails, and other identifying
+        details before analysis.</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    incog_col, _ = st.columns([2, 5])
+    with incog_col:
+        if st.button(
+            "Bias Reduction Mode: ON" if incognito else "Bias Reduction Mode: OFF",
+            key="incog_toggle",
+            type="primary" if incognito else "secondary",
+        ):
+            st.session_state.incognito = not incognito
+            st.rerun()
+
+    if incognito:
+        st.markdown("""
+        <div class="notice">
+          Bias Reduction Mode is active. Names, emails, phone numbers, addresses,
+          and graduation years will be stripped before analysis.
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div class='field-label'>Job Description</div>", unsafe_allow_html=True)
+    jd_input = st.text_area(
+        label="jd_batch", height=160,
+        placeholder="Paste the job description here...",
+        label_visibility="collapsed",
+    )
+
+    st.markdown("<div class='field-label'>Upload Resumes (PDF or TXT)</div>",
+                unsafe_allow_html=True)
+    uploaded = st.file_uploader(
+        label="resumes",
+        type=["pdf", "txt"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+    )
+
+    run_col, _ = st.columns([1, 4])
+    with run_col:
+        run_batch = st.button(
+            "Screen", key="screen_btn", type="primary",
+            disabled=not (jd_input.strip() and uploaded),
+        )
+
+    if run_batch:
+        resumes = {f.name: extract_text(f) for f in uploaded}
+        resumes = {k: v for k, v in resumes.items() if v.strip()}
+        if not resumes:
+            st.warning("Could not extract text from the uploaded files.")
+        else:
+            with st.spinner(f"Screening {len(resumes)} applicant(s)..."):
+                df, reveal_key = screen_applicants(resumes, jd_input,
+                                                   incognito=st.session_state.incognito)
+                st.session_state.screen_df  = df
+                st.session_state.reveal_key = reveal_key
+                st.session_state.show_key   = False
+
+    if st.session_state.screen_df is not None:
+        df         = st.session_state.screen_df
+        reveal_key = st.session_state.reveal_key
+
+        st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+        st.markdown("<div class='field-label'>Results</div>", unsafe_allow_html=True)
+        st.dataframe(df, use_container_width=True)
+
+        if st.session_state.incognito and reveal_key:
+            st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+            if st.button("Reveal Identity Key", key="reveal_btn"):
+                st.session_state.show_key = not st.session_state.show_key
+                st.rerun()
+            if st.session_state.show_key:
+                key_df = pd.DataFrame(
+                    list(reveal_key.items()),
+                    columns=["Rank + Code", "File"]
+                )
+                key_df.index = range(1, len(key_df) + 1)
+                st.markdown("<div class='field-label'>Identity Key</div>",
+                            unsafe_allow_html=True)
+                st.dataframe(key_df, use_container_width=True)
+
+        if st.session_state.incognito and reveal_key:
+            key_rows = pd.DataFrame(
+                list(reveal_key.items()),
+                columns=["Rank + Code", "File"]
+            )
+            csv = df.to_csv(index_label="Rank") + "\n\nIdentity Key\n" + key_rows.to_csv(index=False)
+        else:
+            csv = df.to_csv(index_label="Rank")
+
+        st.download_button(
+            "Export CSV", csv,
+            file_name="screening_results.csv",
+            mime="text/csv",
+            key="export_csv",
+        )
+
+
 st.markdown("""
 <div style="
     margin-top: 20px;
@@ -482,7 +612,7 @@ st.markdown("""
 "></div>
 """, unsafe_allow_html=True)
 
-col1, col2, col3, _ = st.columns([2, 3, 2, 1])
+col_l, col1, col2, col3, col4, col_r = st.columns([1, 1, 2, 3, 2, 1])
 with col1:
     if st.button("Start", key="tb_readme"):
         show_readme()
@@ -494,6 +624,11 @@ with col2:
 with col3:
     if st.button("Match to Job Description", key="tb_matcher"):
         st.session_state.active_window   = "matcher"
+        st.session_state.start_menu_open = False
+        st.rerun()
+with col4:
+    if st.button("Screen Applicants", key="tb_screen"):
+        st.session_state.active_window   = "screen"
         st.session_state.start_menu_open = False
         st.rerun()
 
