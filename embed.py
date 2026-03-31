@@ -7,14 +7,14 @@ Local sentence-transformer embeddings. No external APIs.
 Model: all-MiniLM-L6-v2 (~80 MB, CPU-friendly, cached after first download).
 """
 
+import streamlit as st
 import numpy as np
-from functools import lru_cache
 from sentence_transformers import SentenceTransformer
 
 DEFAULT_MODEL = "all-MiniLM-L6-v2"
 
 
-@lru_cache(maxsize=1)
+@st.cache_resource
 def _load_model(model_name: str = DEFAULT_MODEL) -> SentenceTransformer:
     return SentenceTransformer(model_name)
 
