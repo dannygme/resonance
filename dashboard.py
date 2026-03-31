@@ -502,7 +502,7 @@ elif st.session_state.active_window == "screen":
       <div class="win-body">
         <p style="margin:0;font-size:12px;">Upload resumes and a job description.
         All applicants are scored and ranked locally.
-        Enable Incognito Mode to strip names, emails, and other identifying
+        Enable Bias Reduction Mode to strip names, emails, and other identifying
         details before analysis.</p>
       </div>
     </div>
