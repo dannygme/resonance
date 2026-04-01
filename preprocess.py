@@ -36,6 +36,7 @@ SECTION_PATTERNS = {
     ),
 }
 
+# Degree abbreviations and prose forms expanded to full text for embedding alignment
 _DEGREE_MAP: list[tuple[str, str]] = [
     (r"B\.?\s*B\.?\s*A\.?",  "bachelor of business administration"),
     (r"B\.?\s*F\.?\s*A\.?",  "bachelor of fine arts"),
@@ -48,6 +49,10 @@ _DEGREE_MAP: list[tuple[str, str]] = [
     (r"B\.?\s*S\.?",          "bachelor of science"),
     (r"M\.?\s*A\.?",          "master of arts"),
     (r"M\.?\s*S\.?",          "master of science"),
+    (r"bachelor(?:'?s)?",     "bachelor degree"),
+    (r"master(?:'?s)?",       "master degree"),
+    (r"associate(?:'?s)?",    "associate degree"),
+    (r"doctorate",            "doctoral degree"),
 ]
 
 _DEGREE_COMBINED = re.compile(
@@ -58,6 +63,7 @@ _DEGREE_LOOKUP = {
     re.compile(r"^" + p + r"$", re.IGNORECASE): repl
     for p, repl in _DEGREE_MAP
 }
+_ALREADY_EXPANDED = re.compile(r"\b(bachelor|master)\s+of\s+", re.IGNORECASE)
 
 _SKILL_LIST_PATTERN = re.compile(
     r"^([\w\+\#\.\s\-/]{2,40})(,\s*[\w\+\#\.\s\-/]{2,40}){2,}$"
@@ -72,16 +78,30 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def _normalize_degrees(text: str) -> str:
-    def _replace(m: re.Match) -> str:
-        token = m.group(0)
-        for pat, repl in _DEGREE_LOOKUP.items():
-            if pat.match(token):
-                return repl
-        return token
-    return _DEGREE_COMBINED.sub(_replace, text)
+    lines = text.splitlines()
+    result = []
+    for line in lines:
+        if _ALREADY_EXPANDED.search(line):
+            def _replace_abbrev(m: re.Match) -> str:
+                token = m.group(0)
+                for pat, repl in _DEGREE_LOOKUP.items():
+                    if pat.match(token) and ("." in token or len(token) <= 4):
+                        return repl
+                return token
+            result.append(_DEGREE_COMBINED.sub(_replace_abbrev, line))
+        else:
+            def _replace(m: re.Match) -> str:
+                token = m.group(0)
+                for pat, repl in _DEGREE_LOOKUP.items():
+                    if pat.match(token):
+                        return repl
+                return token
+            result.append(_DEGREE_COMBINED.sub(_replace, line))
+    return "\n".join(result)
 
 
 def _expand_skill_list(text: str) -> str:
+    """Expand bare comma-separated tool lists into prose for better embedding."""
     lines = text.splitlines()
     expanded = []
     for line in lines:

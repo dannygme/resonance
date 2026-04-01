@@ -17,38 +17,31 @@ from embed import get_embedding, embed_sections, get_embeddings_batch
 _SECTION_WEIGHTS = {"skills": 0.45, "experience": 0.35, "education": 0.20}
 _MATCH_THRESHOLD = 0.68
 
-# Tokens to always exclude from keyword extraction
 _NOISE = {
-    # generic ability/quality words
-    "ability", "able", "work", "working", "experience", "experienced",
+    "ability", "able", "abilities", "work", "working", "experience", "experienced",
     "strong", "good", "great", "excellent", "knowledge", "understanding",
     "including", "using", "use", "used", "provide", "support", "help",
     "team", "role", "position", "candidate", "applicant", "person",
-    # time / scheduling
+    "ksas", "ksa", "accountability", "competency", "competencies",
+    "meets", "meet", "build", "builds", "demonstrate", "demonstrates",
     "year", "years", "month", "months", "day", "days", "time", "hours",
     "hour", "schedule", "shift", "full", "part",
-    # location / work arrangement
     "location", "remote", "hybrid", "office", "based", "flexible",
-    # compensation / HR boilerplate
     "salary", "compensation", "benefits", "opportunity", "opportunities",
     "please", "apply", "application", "cover", "letter", "resume", "cv",
     "equal", "employer", "diversity", "inclusion", "accommodate",
-    # pace / environment filler
     "fast", "paced", "environment", "dynamic", "growing", "busy",
     "startup", "collaborative", "motivated", "driven", "passionate",
-    # quantity words that form weak bigrams
     "multiple", "various", "manage", "managing", "efforts", "effort",
     "functional", "cross", "high", "level", "key", "main", "primary",
-    # timezone noise
     "pm", "am", "et", "est", "pst", "gmt",
 }
 
-# Regex to strip tokens that are purely numeric, dates, times, or short noise
 _NOISE_PATTERN = re.compile(
-    r"^\d+$"                  # pure numbers
-    r"|^\d{1,2}[:/]\d{2}"    # times like 4:30, 4/30
-    r"|^\d{4}$"               # years like 2026
-    r"|^.{1,2}$"              # 1-2 char tokens
+    r"^\d+$"
+    r"|^\d{1,2}[:/]\d{2}"
+    r"|^\d{4}$"
+    r"|^.{1,2}$"
 )
 
 
@@ -78,14 +71,9 @@ def weighted_section_score(section_scores: dict[str, int]) -> int:
 
 
 def _extract_keywords(text: str, top_n: int = 20) -> list[str]:
-    """
-    Extract meaningful skill/tool/concept keywords from a JD using TF-IDF
-    fitted across bigram+unigram candidates, with noise filtering.
-    """
     if not text.strip():
         return []
 
-    # Split into pseudo-sentences to give TF-IDF multiple documents
     sentences = [s.strip() for s in re.split(r"[.\n•\-]", text) if len(s.strip()) > 10]
     if len(sentences) < 3:
         sentences = [text]
@@ -95,14 +83,13 @@ def _extract_keywords(text: str, top_n: int = 20) -> list[str]:
         stop_words="english",
         max_features=500,
         min_df=1,
-        token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z0-9+#./\-]{2,}\b",  # no pure numbers
+        token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z0-9+#./\-]{2,}\b",
     )
     try:
         tfidf_matrix = vec.fit_transform(sentences)
     except ValueError:
         return []
 
-    # Sum TF-IDF scores across sentences to rank by overall importance
     scores = np.asarray(tfidf_matrix.sum(axis=0)).flatten()
     terms = vec.get_feature_names_out()
     ranked = sorted(zip(terms, scores), key=lambda x: -x[1])
@@ -110,8 +97,9 @@ def _extract_keywords(text: str, top_n: int = 20) -> list[str]:
     results = []
     for term, _ in ranked:
         words = term.lower().split()
-        # Skip if any word is noise or matches noise pattern
         if any(w in _NOISE or _NOISE_PATTERN.match(w) for w in words):
+            continue
+        if len(words) == 2 and sum(1 for w in words if w not in _NOISE) < 1:
             continue
         results.append(term)
         if len(results) >= top_n:
@@ -120,14 +108,10 @@ def _extract_keywords(text: str, top_n: int = 20) -> list[str]:
     return results
 
 
-def _keyword_match(keyword: str, resume_text: str) -> float:
-    """
-    Check whether a keyword appears in the resume.
-    Returns 1.0 for exact/substring match, else falls back to embedding similarity.
-    """
+def _keyword_match(keyword: str, resume_text: str) -> float | None:
     if keyword.lower() in resume_text.lower():
         return 1.0
-    return None  # signal to use embedding fallback
+    return None
 
 
 def gap_analysis(jd_text: str, resume_text: str, top_n: int = 20) -> dict:
@@ -136,7 +120,6 @@ def gap_analysis(jd_text: str, resume_text: str, top_n: int = 20) -> dict:
         return {"strong_matches": [], "potential_gaps": [], "all_terms": []}
 
     results = []
-    # Separate into exact-match hits and embedding fallbacks
     needs_embedding = []
     for kw in keywords:
         score = _keyword_match(kw, resume_text)
@@ -145,7 +128,6 @@ def gap_analysis(jd_text: str, resume_text: str, top_n: int = 20) -> dict:
         else:
             needs_embedding.append(kw)
 
-    # Batch embed only the unmatched keywords + resume
     if needs_embedding:
         all_texts = needs_embedding + [resume_text]
         embs = get_embeddings_batch(all_texts)
